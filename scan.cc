@@ -2206,6 +2206,7 @@ __isl_give pet_tree *PetScan::extract(StmtRange stmt_range, bool block,
 	for (i = stmt_range.first, j = 0; i != stmt_range.second; ++i, ++j)
 		;
 
+    // j = number of statement in the given range ? number of children?
 	tree = pet_tree_new_block(ctx, block, j);
 
 	skip = 0;
@@ -2589,7 +2590,8 @@ struct pet_scop *PetScan::scan(Stmt *stmt)
 
 	kl.remove_accessed_after(stmt, loc.start, loc.end);
 
-	tree = extract(StmtRange(start, end), false, false, stmt);
+	tree = extract(StmtRange(start, end), false /* block */,
+	    false /* skip_declarations */, stmt /* parent*/);
 	tree = add_kills(tree, kl.locals);
 	return extract_scop(tree);
 }

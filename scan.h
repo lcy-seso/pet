@@ -138,6 +138,8 @@ struct PetScan {
 	unsigned last_line;
 	/* The line number of the Stmt currently being considered. */
 	unsigned current_line;
+
+	//?
 	/* Information about the independent pragmas in the source code. */
 	std::vector<Independent> &independent;
 

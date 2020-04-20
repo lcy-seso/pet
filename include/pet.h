@@ -513,16 +513,20 @@ struct pet_independence {
 struct pet_scop {
 	pet_loc *loc;
 
+    // program parameters
 	isl_set *context;
 	isl_set *context_value;
+	// schedule
 	isl_schedule *schedule;
 
 	int n_type;
 	struct pet_type **types;
 
+    // array declaration
 	int n_array;
 	struct pet_array **arrays;
 
+    // the statement list.
 	int n_stmt;
 	struct pet_stmt **stmts;
 

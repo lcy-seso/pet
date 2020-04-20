@@ -432,6 +432,7 @@ struct ScopLocList {
  * In particular, store the location of the line containing
  * the pragma in the list "scops".
  */
+// see Clang plugin: https://clang.llvm.org/docs/ClangPlugins.html
 struct PragmaScopHandler : public PragmaHandler {
 	ScopLocList &scops;
 
@@ -574,6 +575,8 @@ struct PetASTConsumer : public ASTConsumer {
 	isl_ctx *ctx;
 	isl_set *context;
 	isl_set *context_value;
+
+	// what is "live_in/live_out"?
 	set<ValueDecl *> live_out;
 	PragmaValueBoundsHandler *vb_handler;
 	isl_stat (*fn)(struct pet_scop *scop, void *user);
@@ -662,7 +665,19 @@ struct PetASTConsumer : public ASTConsumer {
 	/* For each explicitly marked scop (using pragmas),
 	 * extract the scop and call "fn" on it if it is inside "fd".
 	 */
+	// Clang::FunctionDecl
+	/*
+	Represents a function declaration or definition.
+	
+	Since a given function can be declared several times in a program, there may
+	be several FunctionDecls that correspond to that function. Only one of those
+	FunctionDecls will be found when traversing the list of declarations in the
+	context of the FunctionDecl (e.g., the translation unit); this FunctionDecl
+	contains all of the information known about the function. Other, previous
+	declarations of the function are available via the getPreviousDecl() chain.
+	*/
 	void scan_scops(FunctionDecl *fd) {
+		// clang::FunctionDecl
 		unsigned start, end;
 		vector<ScopLoc>::iterator it;
 		isl_union_map *vb = vb_handler->value_bounds;
@@ -672,6 +687,7 @@ struct PetASTConsumer : public ASTConsumer {
 		if (scops.list.size() == 0)
 			return;
 
+        // SM -> source manager
 		start = SM.getFileOffset(begin_loc(fd));
 		end = SM.getFileOffset(end_loc(fd));
 
@@ -690,6 +706,7 @@ struct PetASTConsumer : public ASTConsumer {
 		}
 	}
 
+    // see clang doc: https://clang.llvm.org/doxygen/classclang_1_1ASTConsumer.html#a856744773798bd97057ccbc2768b21ad
 	virtual HandleTopLevelDeclReturn HandleTopLevelDecl(DeclGroupRef dg) {
 		DeclGroupRef::iterator it;
 
@@ -1096,16 +1113,63 @@ static isl_stat foreach_scop_in_C_source(isl_ctx *ctx,
 	const char *filename, const char *function, pet_options *options,
 	isl_stat (*fn)(struct pet_scop *scop, void *user), void *user)
 {
+	/* Comments from Clang source codes.
+
+	CompilerInstance - Helper class for managing a single instance of the Clang
+	compiler.
+	
+	The CompilerInstance serves two purposes:
+	 (1) It manages the various objects which are necessary to run the compiler,
+	     for example the preprocessor, the target information, and the AST
+	     context.
+	 (2) It provides utility routines for constructing and manipulating the
+	     common Clang objects.
+	
+	The compiler instance generally owns the instance of all the objects that it
+	manages. However, clients can still share objects by manually setting the
+	object and retaking ownership prior to destroying the CompilerInstance.
+	
+	The compiler instance is intended to simplify clients, but not to lock them
+	in to the compiler instance for everything. When possible, utility functions
+	come in two forms; a short form that reuses the CompilerInstance objects,
+	and a long form that takes explicit instances of any required objects.
+
+	*/
+
 	CompilerInstance *Clang = new CompilerInstance();
 	create_diagnostics(Clang);
+
+	/* Commments from Clang source codes.
+    Concrete class used by the front-end to report problems and issues.
+ 
+    This massages the diagnostics (e.g. handling things like "report warnings
+    as errors" and passes them off to the DiagnosticConsumer for reporting to
+    the user. DiagnosticsEngine is tied to one translation unit and one
+    SourceManager./// Concrete class used by the front-end to report problems and issues.
+ 
+    This massages the diagnostics (e.g. handling things like "report warnings
+    as errors" and passes them off to the DiagnosticConsumer for reporting to
+    the user. DiagnosticsEngine is tied to one translation unit and one
+    SourceManager.
+	*/
 	DiagnosticsEngine &Diags = Clang->getDiagnostics();
 	Diags.setSuppressSystemWarnings(true);
+
+	/* Comments from Clang source codes.
+    Helper class for holding the data necessary to invoke the compiler.
+ 
+    This class is designed to represent an abstract "invocation" of the
+    compiler, including data such as the include paths, the code generation
+    options, the warning flags, and so on.
+	*/
 	CompilerInvocation *invocation = construct_invocation(filename, Diags);
 	if (invocation)
 		set_invocation(Clang, invocation);
 	Diags.setClient(construct_printer(Clang, options->pencil));
 	Clang->createFileManager();
 	Clang->createSourceManager(Clang->getFileManager());
+
+	// Exposes information about the current target.
 	TargetInfo *target = create_target_info(Clang, Diags);
 	Clang->setTarget(target);
 	set_lang_defaults(Clang);
@@ -1122,6 +1186,7 @@ static isl_stat foreach_scop_in_C_source(isl_ctx *ctx,
 	PP.getBuiltinInfo().initializeBuiltins(PP.getIdentifierTable(),
 		PP.getLangOpts());
 
+    // List of pairs of #pragma scop and #pragma endscop locations.
 	ScopLocList scops;
 
 	const FileEntry *file = getFile(Clang, filename);
@@ -1131,6 +1196,8 @@ static isl_stat foreach_scop_in_C_source(isl_ctx *ctx,
 	create_main_file_id(Clang->getSourceManager(), file);
 
 	Clang->createASTContext();
+
+    // Pet AST consumer also requires information about semantic analysis.
 	PetASTConsumer consumer(ctx, PP, Clang->getASTContext(), Diags,
 				scops, function, options, fn, user);
 	Sema *sema = new Sema(PP, Clang->getASTContext(), consumer);
@@ -1161,6 +1228,8 @@ static isl_stat foreach_scop_in_C_source(isl_ctx *ctx,
  * that all objects on the stack (of that function) are destroyed before we
  * call llvm_shutdown.
  */
+
+// static c function is only visible to other functions in the same file.
 static isl_stat pet_foreach_scop_in_C_source(isl_ctx *ctx,
 	const char *filename, const char *function,
 	isl_stat (*fn)(struct pet_scop *scop, void *user), void *user)
@@ -1174,6 +1243,9 @@ static isl_stat pet_foreach_scop_in_C_source(isl_ctx *ctx,
 		options = pet_options_new_with_defaults();
 		allocated = true;
 	}
+
+    // fn set to "set_first_scop" in pet.cc
+	// user is a pointer to store extraced scop.
 
 	r = foreach_scop_in_C_source(ctx, filename, function, options,
 					fn, user);
