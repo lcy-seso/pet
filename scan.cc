@@ -2413,11 +2413,12 @@ struct pet_scop* PetScan::scan(Stmt* stmt) {
   kl.remove_accessed_after(stmt, loc.start, loc.end);
 
   tree = extract(StmtRange(start, end), false, false, stmt);
-  tree = add_kills(tree, kl.locals);
 
   fprintf(stderr, "==========begin dump tree=============\n\n");
   pet_tree_dump(tree);
   fprintf(stderr, "==========end dump tree=============\n\n");
+
+  tree = add_kills(tree, kl.locals);
 
   return extract_scop(tree);
 }
